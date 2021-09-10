@@ -1,7 +1,7 @@
 interface user {
   id: string;
   firstName: string;
-  lastNmae: string;
+  lastName: string;
   role: 'dealer' | 'player' | 'spectator';
   avatar: File; // мб base64?
 }
