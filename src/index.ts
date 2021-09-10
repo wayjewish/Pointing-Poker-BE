@@ -69,12 +69,46 @@ io.on('connection', (socket: Socket) => {
       if (error) {
         console.log(error);
       } else {
-        socket.join('room');
         console.log(game);
-        socket.to(game.hash).emit('loginNewUser', 'Вошел новый юзер');
+        socket.to(game.hash).emit('loginRequest', hash, user, socket.id);
         callback(game);
       }
     });
+  });
+
+  socket.on('allowLogin', async (hash, user, socketId) => {
+    console.log('allowLogin');
+    await GameModel.findOne({ hash }).exec((error: CallbackError, game: any) => {
+      if (error) {
+        console.log(error);
+      } else {
+        console.log('findOne');
+        game.users.push(user);
+        game.save((newError: CallbackError, newGame: any) => {
+          if (newError) {
+            console.log(error);
+          } else {
+            socket.to(socketId).emit('answerLogin', {
+              msg: 'да',
+              game: newGame,
+            });
+            io.in('room').emit('updateGame', newGame);
+          }
+        });
+      }
+    });
+  });
+
+  socket.on('denyLogin', (hash, user, socketId) => {
+    console.log('denyLogin', socketId);
+    socket.to(socketId).emit('answerLogin', {
+      msg: 'нет',
+    });
+  });
+
+  socket.on('joinRoom', () => {
+    console.log('joinRoom', socket.id);
+    socket.join('room');
   });
 
   socket.on('closeGame', () => {
@@ -85,14 +119,15 @@ io.on('connection', (socket: Socket) => {
 
   socket.on('disconnect', async () => {
     console.log('User disconnected', socket.id);
-    socket.in('room').emit('closeGameServer', 'Игра закрылась');
+
     await GameModel.findOneAndDelete({ hash: socket.id }).exec(
       (error: CallbackError, game: any) => {
         if (error) {
           console.log(error);
         } else {
           console.log(game);
-          socket.in('room').emit('closeGameServer', 'Игра закрылась');
+          // socket.in('room').emit('closeGameServer', 'Игра закрылась');
+          io.in('room').emit('closeGameServer', 'Игра закрылась');
         }
       },
     );
