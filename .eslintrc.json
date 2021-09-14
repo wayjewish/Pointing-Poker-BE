@@ -47,7 +47,9 @@
             "error", {
             "endOfLine": "auto"
         }],
-        "no-underscore-dangle": "off"
+        "no-underscore-dangle": "off",
+        "no-shadow": "off",
+        "no-param-reassign": "off"
     },
     "settings": {
         "import/resolver": {

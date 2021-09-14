@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import mongoose, { CallbackError } from 'mongoose';
 
-import GameModel from './models/game';
+import SessionModel from './models/session';
 
 dotenv.config();
 const PORT = process.env.PORT || 3000;
@@ -32,14 +32,8 @@ const io = new Server(httpServer);
 io.on('connection', (socket: Socket) => {
   console.log(socket.id);
 
-  socket.on('createGame', async (user, callback) => {
-    // сгенерировать id игры
-    // создать игру с диллером = user
-    // вернуть объект игры
-
-    console.log(user);
-
-    const newGame = new GameModel({
+  socket.on('create', async (user, callback) => {
+    const newSession = new SessionModel({
       hash: socket.id,
       users: [
         {
@@ -47,90 +41,88 @@ io.on('connection', (socket: Socket) => {
         },
       ],
     });
-    console.log(newGame);
 
-    await newGame.save((error: CallbackError, game: typeof GameModel) => {
+    await newSession.save((error: CallbackError, session: typeof SessionModel) => {
       if (error) {
-        console.log(error);
+        callback(error);
       } else {
+        socket.data.hash = socket.id;
+        socket.data.role = user.role;
+
         socket.join('room');
-        console.log(game);
-        callback(game);
+        callback(session);
       }
     });
   });
 
-  socket.on('loginGame', async (hash, user, callback) => {
-    // войти в игру
-    // добавить игрока user
-    // вернуть объект игры
-
-    await GameModel.findOne({ hash }).exec((error: CallbackError, game: any) => {
+  socket.on('login', async (hash, user, callback) => {
+    await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
       if (error) {
-        console.log(error);
+        callback(error);
+      } else if (session) {
+        socket.data.hash = hash;
+        socket.data.role = user.role;
+
+        // socket.join('room');
+        socket.to(session.hash).emit('loginRequest', hash, user, socket.id);
       } else {
-        console.log(game);
-        socket.to(game.hash).emit('loginRequest', hash, user, socket.id);
-        callback(game);
+        callback('нет такой сессии');
       }
     });
   });
 
-  socket.on('allowLogin', async (hash, user, socketId) => {
-    console.log('allowLogin');
-    await GameModel.findOne({ hash }).exec((error: CallbackError, game: any) => {
-      if (error) {
-        console.log(error);
-      } else {
-        console.log('findOne');
-        game.users.push(user);
-        game.save((newError: CallbackError, newGame: any) => {
-          if (newError) {
-            console.log(error);
-          } else {
-            socket.to(socketId).emit('answerLogin', {
-              msg: 'да',
-              game: newGame,
+  socket.on('loginAllow', async (hash, user, socketId) => {
+    await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
+      if (!error) {
+        session.users.push(user);
+        session.save((error: CallbackError, session: any) => {
+          if (!error) {
+            socket.to(socketId).emit('loginAnswer', {
+              msg: 'разрешено войти',
+              session,
             });
-            io.in('room').emit('updateGame', newGame);
+            io.in('room').emit('update', session);
           }
         });
       }
     });
   });
 
-  socket.on('denyLogin', (hash, user, socketId) => {
-    console.log('denyLogin', socketId);
+  socket.on('loginDeny', (hash, user, socketId) => {
     socket.to(socketId).emit('answerLogin', {
-      msg: 'нет',
+      msg: 'во входе отказано',
     });
   });
 
   socket.on('joinRoom', () => {
-    console.log('joinRoom', socket.id);
     socket.join('room');
   });
 
-  socket.on('closeGame', () => {
-    // закрыть игру
-    console.log('closeGame', socket.id);
-    socket.emit('closeGameServer', 'Игра закрылась');
-  });
-
   socket.on('disconnect', async () => {
-    console.log('User disconnected', socket.id);
-
-    await GameModel.findOneAndDelete({ hash: socket.id }).exec(
-      (error: CallbackError, game: any) => {
-        if (error) {
-          console.log(error);
-        } else {
-          console.log(game);
-          // socket.in('room').emit('closeGameServer', 'Игра закрылась');
-          io.in('room').emit('closeGameServer', 'Игра закрылась');
-        }
-      },
-    );
+    if (socket.data.role === 'dealer') {
+      await SessionModel.findOneAndDelete({ hash: socket.id }).exec(
+        (error: CallbackError, session: any) => {
+          if (!error) {
+            io.in('room').emit('remove', 'сессия закрылась');
+          }
+        },
+      );
+    } else {
+      await SessionModel.findOne({ hash: socket.data.hash }).exec(
+        (error: CallbackError, session: any) => {
+          if (!error) {
+            if (session) {
+              session.users = session.users.filter((user: any) => user.socket !== socket.id);
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          }
+        },
+      );
+    }
   });
 });
 
