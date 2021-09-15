@@ -5,17 +5,18 @@ const sessionSchema = new mongoose.Schema({
     type: String,
     default: 'Sprint',
   },
-  hash: String,
+  hash: { type: String, required: true },
   users: [
     {
       firstName: { type: String, required: true },
-      lastName: { type: String, required: true },
+      lastName: String,
       job: String,
       role: {
         type: String,
         required: true,
         enum: ['dealer', 'player', 'spectator'],
       },
+      avatar: String,
       socket: String,
     },
   ],
