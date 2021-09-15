@@ -55,7 +55,7 @@ io.on('connection', (socket: Socket) => {
     });
   });
 
-  socket.on('check', async (hash, user, callback) => {
+  socket.on('check', async (hash, callback) => {
     await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
       if (error) {
         callback(error);
