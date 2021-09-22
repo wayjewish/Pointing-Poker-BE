@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { isStringLiteral } from 'typescript';
 
 const sessionSchema = new mongoose.Schema({
   title: {
@@ -18,7 +17,10 @@ const sessionSchema = new mongoose.Schema({
         enum: ['dealer', 'player', 'spectator'],
       },
       avatar: String,
-      socket: String,
+      socket: {
+        type: String,
+        required: true,
+      },
     },
   ],
   settings: {
@@ -48,7 +50,10 @@ const sessionSchema = new mongoose.Schema({
     scoreType: { type: String, default: 'story point' },
     scoreTypeShort: { type: String, default: 'SP' },
   },
-  cards: [String],
+  cards: {
+    type: Array,
+    default: ['Unknown', '0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89'],
+  },
   issues: [
     {
       title: String,
@@ -60,6 +65,10 @@ const sessionSchema = new mongoose.Schema({
     },
   ],
   game: {
+    runGame: {
+      type: Boolean,
+      default: false,
+    },
     runRound: {
       type: Boolean,
       default: false,

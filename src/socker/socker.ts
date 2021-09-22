@@ -16,7 +16,6 @@ const socker = (server: any) => {
             ...user,
           },
         ],
-        cards: ['Unknown', '0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89'],
       });
 
       await newSession.save((error: CallbackError, session: typeof SessionModel) => {
@@ -52,21 +51,37 @@ const socker = (server: any) => {
           socket.data.hash = hash;
           socket.data.role = user.role;
 
-          // socket.join('room');
-          socket.to(session.hash).emit('loginRequest', hash, user, socket.id);
+          if (session.game.runGame && !session.settings.autoLogin) {
+            socket.to(session.hash).emit('loginRequest', hash, user, socket.id);
+            callback({
+              msg: 'запрос на вход',
+            });
+          } else {
+            session.users.push(user);
+            session.save((error: CallbackError, session: any) => {
+              if (!error) {
+                io.in('room').emit('update', session);
+                socket.join('room');
+                callback({
+                  msg: 'вошел',
+                  session,
+                });
+              }
+            });
+          }
         } else {
           callback('нет такой сессии');
         }
       });
     });
 
-    socket.on('loginAllow', async (hash, user, socketId) => {
+    socket.on('loginAllow', async (hash, user) => {
       await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
         if (!error) {
           session.users.push(user);
           session.save((error: CallbackError, session: any) => {
             if (!error) {
-              socket.to(socketId).emit('loginAnswer', {
+              socket.to(user.socket).emit('loginAnswer', {
                 msg: 'разрешено войти',
                 session,
               });
@@ -77,8 +92,8 @@ const socker = (server: any) => {
       });
     });
 
-    socket.on('loginDeny', (hash, user, socketId) => {
-      socket.to(socketId).emit('answerLogin', {
+    socket.on('loginDeny', (hash, user) => {
+      socket.to(user.socket).emit('loginAnswer', {
         msg: 'во входе отказано',
       });
     });
@@ -87,12 +102,22 @@ const socker = (server: any) => {
       socket.join('room');
     });
 
+    socket.on('update', async (newSession) => {
+      await SessionModel.findOneAndUpdate({ hash: newSession.hash }, newSession, {
+        new: true,
+      }).exec((error: CallbackError, session: any) => {
+        if (!error) {
+          io.in('room').emit('update', session);
+        }
+      });
+    });
+
     socket.on('disconnect', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOneAndDelete({ hash: socket.id }).exec(
           (error: CallbackError, session: any) => {
             if (!error) {
-              io.in('room').emit('remove', 'сессия закрылась');
+              io.in('room').emit('close', 'сессия закрылась');
             }
           },
         );
