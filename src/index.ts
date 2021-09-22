@@ -2,6 +2,7 @@ import * as dotenv from 'dotenv';
 import { createServer } from 'http';
 import express from 'express';
 import cors from 'cors';
+import './db/db';
 import socker from './socker/socker';
 
 dotenv.config();

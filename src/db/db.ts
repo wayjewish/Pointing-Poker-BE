@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import * as dotenv from 'dotenv';
 
+dotenv.config();
+
 if (process.env.DATABASE_URL) {
   mongoose.connect(process.env.DATABASE_URL, {
     useUnifiedTopology: true,
