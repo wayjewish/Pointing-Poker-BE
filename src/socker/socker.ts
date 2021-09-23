@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { CallbackError } from 'mongoose';
 import { Server, Socket } from 'socket.io';
 import SessionModel from '../models/session';
@@ -52,7 +53,7 @@ const socker = (server: any) => {
           socket.data.role = user.role;
 
           if (session.game.runGame && !session.settings.autoLogin) {
-            socket.to(session.hash).emit('loginRequest', hash, user, socket.id);
+            socket.to(session.hash).emit('loginRequest', user);
             callback({
               msg: 'запрос на вход',
             });
@@ -75,24 +76,26 @@ const socker = (server: any) => {
       });
     });
 
-    socket.on('loginAllow', async (hash, user) => {
-      await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
-        if (!error) {
-          session.users.push(user);
-          session.save((error: CallbackError, session: any) => {
-            if (!error) {
-              socket.to(user.socket).emit('loginAnswer', {
-                msg: 'разрешено войти',
-                session,
-              });
-              io.in('room').emit('update', session);
-            }
-          });
-        }
-      });
+    socket.on('loginAllow', async (user) => {
+      await SessionModel.findOne({ hash: socket.data.hash }).exec(
+        (error: CallbackError, session: any) => {
+          if (!error) {
+            session.users.push(user);
+            session.save((error: CallbackError, session: any) => {
+              if (!error) {
+                socket.to(user.socket).emit('loginAnswer', {
+                  msg: 'разрешено войти',
+                  session,
+                });
+                io.in('room').emit('update', session);
+              }
+            });
+          }
+        },
+      );
     });
 
-    socket.on('loginDeny', (hash, user) => {
+    socket.on('loginDeny', (user) => {
       socket.to(user.socket).emit('loginAnswer', {
         msg: 'во входе отказано',
       });
@@ -102,19 +105,110 @@ const socker = (server: any) => {
       socket.join('room');
     });
 
-    socket.on('update', async (newSession) => {
-      await SessionModel.findOneAndUpdate({ hash: newSession.hash }, newSession, {
-        new: true,
-      }).exec((error: CallbackError, session: any) => {
+    socket.on('update', async (props) => {
+      await SessionModel.findOneAndUpdate(
+        { hash: socket.data.hash },
+        { $set: props },
+        { new: true },
+      ).exec((error: CallbackError, session: any) => {
         if (!error) {
           io.in('room').emit('update', session);
         }
       });
     });
 
+    socket.on('startGame', async () => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              session.game.runGame = true;
+              if (session.settings.timer) {
+                session.game.time = session.settings.roundTime;
+              }
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
+    });
+
+    function timer(time: number) {
+      async function step() {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              time--;
+              session.game.time = time;
+
+              if (time < 1) {
+                clearInterval(socket.data.timer);
+                session.game.runRound = false;
+                session.game.endRound = true;
+              }
+
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
+
+      socket.data.timer = setInterval(step, 1000);
+    }
+
+    socket.on('runRound', async () => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              session.game.runRound = true;
+              if (session.settings.timer) {
+                timer(session.game.time);
+              }
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
+    });
+
+    socket.on('newRound', async (key) => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              session.game.issue = key;
+              session.game.runRound = false;
+              session.game.endRound = false;
+              if (session.settings.timer) {
+                session.game.time = session.settings.roundTime;
+              }
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
+    });
+
     socket.on('disconnect', async () => {
       if (socket.data.role === 'dealer') {
-        await SessionModel.findOneAndDelete({ hash: socket.id }).exec(
+        await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
             if (!error) {
               io.in('room').emit('close', 'сессия закрылась');

@@ -77,7 +77,7 @@ const sessionSchema = new mongoose.Schema({
       type: Boolean,
       default: false,
     },
-    timer: {
+    time: {
       type: Number,
       default: 0,
     },
