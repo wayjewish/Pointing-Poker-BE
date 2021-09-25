@@ -141,7 +141,7 @@ const socker = (server: any) => {
       async function step() {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
-            if (!error) {
+            if (!error && session) {
               time--;
               session.game.time = time;
 
@@ -204,6 +204,54 @@ const socker = (server: any) => {
           },
         );
       }
+    });
+
+    socket.on('endRound', async (key) => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              clearInterval(socket.data.timer);
+              session.game.runRound = false;
+              session.game.endRound = true;
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
+    });
+
+    socket.on('cardSelection', async (value) => {
+      await SessionModel.findOne({ hash: socket.data.hash }).exec(
+        (error: CallbackError, session: any) => {
+          if (!error) {
+            const { cards } = session.issues[session.game.issue];
+            const checkIndex = cards.findIndex(
+              (card: { userId: string; cardValue: string }) => card.userId === socket.id,
+            );
+            if (checkIndex !== -1) cards.splice(checkIndex, 1);
+
+            cards.push({
+              userId: socket.id,
+              cardValue: value,
+            });
+            session.issues[session.game.issue].cards = cards;
+
+            session.save((error: CallbackError, session: any) => {
+              if (error) {
+                console.log(error);
+              }
+              if (!error) {
+                io.in('room').emit('update', session);
+              }
+            });
+          }
+        },
+      );
     });
 
     socket.on('disconnect', async () => {
