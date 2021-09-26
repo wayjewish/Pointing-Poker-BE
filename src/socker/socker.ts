@@ -2,6 +2,7 @@
 import { CallbackError } from 'mongoose';
 import { Server, Socket } from 'socket.io';
 import SessionModel from '../models/session';
+import { setCards } from '../assets/setCards';
 
 const socker = (server: any) => {
   const io = new Server(server);
@@ -115,6 +116,48 @@ const socker = (server: any) => {
           io.in('room').emit('update', session);
         }
       });
+    });
+
+    socket.on('settingsChange', async (props) => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              if (props.setCards) {
+                session.cards = setCards[props.setCards];
+              }
+
+              session.settings = {
+                ...session.settings,
+                ...props,
+              };
+
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
+    });
+
+    socket.on('cardsChange', async (cards) => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              session.cards = cards;
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
     });
 
     socket.on('runGame', async () => {
@@ -282,6 +325,18 @@ const socker = (server: any) => {
               cardValue: value,
             });
             session.issues[session.game.issue].cards = cards;
+
+            if (session.settings.flipCards) {
+              const players = session.users.filter((user: any) =>
+                user.role === session.settings.masterPlayer ? 'dealer' || 'player' : 'player',
+              );
+
+              if (cards.length === players.length) {
+                clearInterval(socket.data.timer);
+                session.game.runRound = false;
+                session.game.endRound = true;
+              }
+            }
 
             session.save((error: CallbackError, session: any) => {
               if (error) {
