@@ -73,6 +73,10 @@ const sessionSchema = new mongoose.Schema(
         type: Boolean,
         default: false,
       },
+      endGame: {
+        type: Boolean,
+        default: false,
+      },
       runRound: {
         type: Boolean,
         default: false,

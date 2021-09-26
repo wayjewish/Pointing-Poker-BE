@@ -117,7 +117,7 @@ const socker = (server: any) => {
       });
     });
 
-    socket.on('startGame', async () => {
+    socket.on('runGame', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
@@ -170,6 +170,8 @@ const socker = (server: any) => {
           (error: CallbackError, session: any) => {
             if (!error) {
               session.game.runRound = true;
+              session.game.endRound = false;
+              session.issues[session.game.issue].cards = [];
               if (session.settings.timer) {
                 timer(session.game.time);
               }
@@ -206,7 +208,7 @@ const socker = (server: any) => {
       }
     });
 
-    socket.on('endRound', async (key) => {
+    socket.on('endRound', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
@@ -214,6 +216,46 @@ const socker = (server: any) => {
               clearInterval(socket.data.timer);
               session.game.runRound = false;
               session.game.endRound = true;
+
+              const players = session.users.filter((user: any) =>
+                user.role === session.settings.masterPlayer ? 'dealer' || 'player' : 'player',
+              );
+
+              const { cards } = session.issues[session.game.issue];
+              if (cards.length !== players.length) {
+                players.forEach((player: any) => {
+                  const check = cards.find((card: any) => card.userId === player.socket);
+                  if (!check) {
+                    cards.push({
+                      userId: player.socket,
+                      cardValue: 'Unknown',
+                    });
+                  }
+                });
+              }
+
+              session.save((error: CallbackError, session: any) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
+          },
+        );
+      }
+    });
+
+    socket.on('endGame', async () => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              clearInterval(socket.data.timer);
+              session.game.runGame = false;
+              session.game.endGame = true;
+              session.game.runRound = false;
+              session.game.endRound = false;
+
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
                   io.in('room').emit('update', session);
