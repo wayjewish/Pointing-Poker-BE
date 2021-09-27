@@ -14,6 +14,7 @@ app.use(express.json());
 const server = createServer();
 socker(server);
 
+/*
 app.get('/', (req, res) => {
   res.send('Server is up and running');
 });
@@ -21,6 +22,7 @@ app.get('/', (req, res) => {
 app.listen(process.env.PORT_API, () => {
   console.log(`Api listening on port ${process.env.PORT_API}!`);
 });
+*/
 
 server.listen(process.env.SOCKET_PORT, () => {
   console.log(`Socket listening on port ${process.env.SOCKET_PORT}!`);
