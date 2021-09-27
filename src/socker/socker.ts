@@ -33,6 +33,18 @@ const socker = (server: any) => {
       });
     });
 
+    socket.on('close', async () => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              io.in('room').emit('close', 'сессия закрылась');
+            }
+          },
+        );
+      }
+    });
+
     socket.on('check', async (hash, callback) => {
       await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
         if (error) {
