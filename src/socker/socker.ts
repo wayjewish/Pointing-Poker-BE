@@ -55,19 +55,14 @@ const socker = (server: any) => {
 
           if (session.game.runGame && !session.settings.autoLogin) {
             socket.to(session.hash).emit('loginRequest', user);
-            callback({
-              msg: 'запрос на вход',
-            });
+            callback('запрос на вход');
           } else {
             session.users.push(user);
             session.save((error: CallbackError, session: any) => {
               if (!error) {
-                io.in('room').emit('update', session);
                 socket.join('room');
-                callback({
-                  msg: 'вошел',
-                  session,
-                });
+                io.in('room').emit('update', session);
+                callback('вошел');
               }
             });
           }
@@ -84,10 +79,8 @@ const socker = (server: any) => {
             session.users.push(user);
             session.save((error: CallbackError, session: any) => {
               if (!error) {
-                socket.to(user.socket).emit('loginAnswer', {
-                  msg: 'разрешено войти',
-                  session,
-                });
+                io.in(user.socket).socketsJoin('room');
+                socket.to(user.socket).emit('loginAnswer', 'разрешено войти');
                 io.in('room').emit('update', session);
               }
             });
@@ -97,25 +90,47 @@ const socker = (server: any) => {
     });
 
     socket.on('loginDeny', (user) => {
-      socket.to(user.socket).emit('loginAnswer', {
-        msg: 'во входе отказано',
-      });
+      socket.to(user.socket).emit('loginAnswer', 'во входе отказано');
     });
 
-    socket.on('joinRoom', () => {
-      socket.join('room');
+    socket.on('kick', async (userSocket) => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              if (session) {
+                session.users = session.users.filter((user: any) => user.socket !== userSocket);
+                session.save((error: CallbackError, session: any) => {
+                  if (!error) {
+                    io.in(userSocket).socketsLeave('room');
+                    socket.to(userSocket).emit('kick');
+
+                    io.in('room').emit('update', session);
+                  }
+                });
+              }
+            }
+          },
+        );
+      }
     });
 
     socket.on('update', async (props) => {
-      await SessionModel.findOneAndUpdate(
-        { hash: socket.data.hash },
-        { $set: props },
-        { new: true },
-      ).exec((error: CallbackError, session: any) => {
-        if (!error) {
-          io.in('room').emit('update', session);
+      if (socket.data.role === 'dealer') {
+        if (props.settings) {
+          props.cards = setCards[props.settings.setCards];
         }
-      });
+
+        await SessionModel.findOneAndUpdate(
+          { hash: socket.data.hash },
+          { $set: props },
+          { new: true },
+        ).exec((error: CallbackError, session: any) => {
+          if (!error) {
+            io.in('room').emit('update', session);
+          }
+        });
+      }
     });
 
     socket.on('settingsChange', async (props) => {
@@ -312,7 +327,7 @@ const socker = (server: any) => {
 
     socket.on('cardSelection', async (value) => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
-        (error: CallbackError, session: any) => {
+        async (error: CallbackError, session: any) => {
           if (!error) {
             const { cards } = session.issues[session.game.issue];
             const checkIndex = cards.findIndex(
@@ -332,7 +347,8 @@ const socker = (server: any) => {
               );
 
               if (cards.length === players.length) {
-                clearInterval(socket.data.timer);
+                const sockets = await io.in('room').fetchSockets();
+                clearInterval(sockets[0].data.timer);
                 session.game.runRound = false;
                 session.game.endRound = true;
               }
