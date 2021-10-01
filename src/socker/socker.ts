@@ -26,8 +26,9 @@ const socker = (server: any) => {
         } else {
           socket.data.hash = socket.id;
           socket.data.role = user.role;
+          socket.data.room = `room${socket.id}`;
 
-          socket.join('room');
+          socket.join(socket.data.room);
           callback(session);
         }
       });
@@ -38,7 +39,7 @@ const socker = (server: any) => {
         await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
             if (!error) {
-              io.in('room').emit('close', 'сессия закрылась');
+              io.in(socket.data.room).emit('close', 'сессия закрылась');
             }
           },
         );
@@ -64,6 +65,7 @@ const socker = (server: any) => {
         } else if (session) {
           socket.data.hash = hash;
           socket.data.role = user.role;
+          socket.data.room = `room${hash}`;
 
           if (session.game.runGame && !session.settings.autoLogin) {
             socket.to(session.hash).emit('loginRequest', user);
@@ -72,8 +74,8 @@ const socker = (server: any) => {
             session.users.push(user);
             session.save((error: CallbackError, session: any) => {
               if (!error) {
-                socket.join('room');
-                io.in('room').emit('update', session);
+                socket.join(socket.data.room);
+                io.in(socket.data.room).emit('update', session);
                 callback('вошел');
               }
             });
@@ -84,6 +86,36 @@ const socker = (server: any) => {
       });
     });
 
+    socket.on('exit', async () => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              io.in(socket.data.room).socketsLeave(socket.data.room);
+              io.in(socket.data.room).emit('close', 'сессия закрылась');
+            }
+          },
+        );
+      } else {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: any) => {
+            if (!error) {
+              if (session) {
+                session.users = session.users.filter((user: any) => user.socket !== socket.id);
+                session.save((error: CallbackError, session: any) => {
+                  if (!error) {
+                    socket.leave(socket.data.room);
+                    socket.data.room = null;
+                    io.in(socket.data.room).emit('update', session);
+                  }
+                });
+              }
+            }
+          },
+        );
+      }
+    });
+
     socket.on('loginAllow', async (user) => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
         (error: CallbackError, session: any) => {
@@ -91,9 +123,9 @@ const socker = (server: any) => {
             session.users.push(user);
             session.save((error: CallbackError, session: any) => {
               if (!error) {
-                io.in(user.socket).socketsJoin('room');
+                io.in(user.socket).socketsJoin(socket.data.room);
                 socket.to(user.socket).emit('loginAnswer', 'разрешено войти');
-                io.in('room').emit('update', session);
+                io.in(socket.data.room).emit('update', session);
               }
             });
           }
@@ -114,10 +146,10 @@ const socker = (server: any) => {
                 session.users = session.users.filter((user: any) => user.socket !== userSocket);
                 session.save((error: CallbackError, session: any) => {
                   if (!error) {
-                    io.in(userSocket).socketsLeave('room');
+                    io.in(userSocket).socketsLeave(socket.data.room);
                     socket.to(userSocket).emit('kick');
 
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -139,7 +171,7 @@ const socker = (server: any) => {
           { new: true },
         ).exec((error: CallbackError, session: any) => {
           if (!error) {
-            io.in('room').emit('update', session);
+            io.in(socket.data.room).emit('update', session);
           }
         });
       }
@@ -161,7 +193,7 @@ const socker = (server: any) => {
 
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -178,7 +210,7 @@ const socker = (server: any) => {
               session.cards = cards;
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -198,7 +230,7 @@ const socker = (server: any) => {
               }
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -223,7 +255,7 @@ const socker = (server: any) => {
 
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -247,7 +279,7 @@ const socker = (server: any) => {
               }
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -269,7 +301,7 @@ const socker = (server: any) => {
               }
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -306,7 +338,7 @@ const socker = (server: any) => {
 
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -328,7 +360,7 @@ const socker = (server: any) => {
 
               session.save((error: CallbackError, session: any) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -359,7 +391,7 @@ const socker = (server: any) => {
               );
 
               if (cards.length === players.length) {
-                const sockets = await io.in('room').fetchSockets();
+                const sockets = await io.in(socket.data.room).fetchSockets();
                 clearInterval(sockets[0].data.timer);
                 session.game.runRound = false;
                 session.game.endRound = true;
@@ -371,7 +403,7 @@ const socker = (server: any) => {
                 console.log(error);
               }
               if (!error) {
-                io.in('room').emit('update', session);
+                io.in(socket.data.room).emit('update', session);
               }
             });
           }
@@ -384,7 +416,8 @@ const socker = (server: any) => {
         await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
             if (!error) {
-              io.in('room').emit('close', 'сессия закрылась');
+              io.in(socket.data.room).socketsLeave(socket.data.room);
+              io.in(socket.data.room).emit('close', 'сессия закрылась');
             }
           },
         );
@@ -396,7 +429,9 @@ const socker = (server: any) => {
                 session.users = session.users.filter((user: any) => user.socket !== socket.id);
                 session.save((error: CallbackError, session: any) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    socket.leave(socket.data.room);
+                    socket.data.room = null;
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
