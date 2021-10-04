@@ -1,5 +1,5 @@
 import * as dotenv from 'dotenv';
-import { createServer } from 'http';
+import * as http from 'http';
 import express from 'express';
 import cors from 'cors';
 import './db/db';
@@ -12,7 +12,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const server = createServer();
+const server = http.createServer();
 socker(server);
 
 /*
