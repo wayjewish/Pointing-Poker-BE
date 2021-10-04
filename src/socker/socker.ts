@@ -34,18 +34,6 @@ const socker = (server: any) => {
       });
     });
 
-    socket.on('close', async () => {
-      if (socket.data.role === 'dealer') {
-        await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
-            if (!error) {
-              io.in(socket.data.room).emit('close', 'сессия закрылась');
-            }
-          },
-        );
-      }
-    });
-
     socket.on('check', async (hash, callback) => {
       await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
         if (error) {
@@ -91,8 +79,8 @@ const socker = (server: any) => {
         await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
             if (!error) {
-              io.in(socket.data.room).socketsLeave(socket.data.room);
               io.in(socket.data.room).emit('close', 'сессия закрылась');
+              io.in(socket.data.room).socketsLeave(socket.data.room);
             }
           },
         );
@@ -105,7 +93,6 @@ const socker = (server: any) => {
                 session.save((error: CallbackError, session: any) => {
                   if (!error) {
                     socket.leave(socket.data.room);
-                    socket.data.room = null;
                     io.in(socket.data.room).emit('update', session);
                   }
                 });
@@ -416,8 +403,8 @@ const socker = (server: any) => {
         await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: any) => {
             if (!error) {
-              io.in(socket.data.room).socketsLeave(socket.data.room);
               io.in(socket.data.room).emit('close', 'сессия закрылась');
+              io.in(socket.data.room).socketsLeave(socket.data.room);
             }
           },
         );
@@ -430,7 +417,6 @@ const socker = (server: any) => {
                 session.save((error: CallbackError, session: any) => {
                   if (!error) {
                     socket.leave(socket.data.room);
-                    socket.data.room = null;
                     io.in(socket.data.room).emit('update', session);
                   }
                 });
