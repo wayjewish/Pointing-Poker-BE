@@ -43,6 +43,18 @@ export interface IGame {
   issue: number;
 }
 
+export interface IVoitesVotes {
+  userSocket: string;
+  voteType: string;
+}
+
+export interface IVoites {
+  run: boolean;
+  whoSocket: string;
+  whomSocket: string;
+  votes: IVoitesVotes[];
+}
+
 export interface ISession extends Document {
   title: string;
   hash: string;
@@ -51,6 +63,7 @@ export interface ISession extends Document {
   cards: string[];
   issues: IIssue[];
   game: IGame;
+  voting: IVoites;
 }
 
 const sessionSchema: Schema = new Schema(
@@ -146,6 +159,20 @@ const sessionSchema: Schema = new Schema(
         type: Number,
         default: 0,
       },
+    },
+    voting: {
+      run: {
+        type: Boolean,
+        default: false,
+      },
+      whoSocket: String,
+      whomSocket: String,
+      votes: [
+        {
+          userSocket: String,
+          voteType: String,
+        },
+      ],
     },
   },
   { minimize: false },
