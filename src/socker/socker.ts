@@ -1,10 +1,10 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import * as http from 'http';
 import { CallbackError } from 'mongoose';
 import { Server, Socket } from 'socket.io';
-import SessionModel from '../models/session';
+import SessionModel, { ISession, IUser, IIssueCards } from '../models/session';
 import { setCards } from '../assets/setCards';
 
-const socker = (server: any) => {
+const socker: (server: http.Server) => void = (server) => {
   const io = new Server(server);
 
   io.on('connection', (socket: Socket) => {
@@ -20,7 +20,7 @@ const socker = (server: any) => {
         ],
       });
 
-      await newSession.save((error: CallbackError, session: typeof SessionModel) => {
+      await newSession.save((error: CallbackError, session: ISession) => {
         if (error) {
           callback(error);
         } else {
@@ -36,7 +36,7 @@ const socker = (server: any) => {
     socket.on('close', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError) => {
             if (!error) {
               io.in('room').emit('close', 'сессия закрылась');
             }
@@ -46,56 +46,62 @@ const socker = (server: any) => {
     });
 
     socket.on('check', async (hash, callback) => {
-      await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
-        if (error) {
-          callback(error);
-        } else if (session) {
-          callback(true);
-        } else {
-          callback(false);
-        }
-      });
+      await SessionModel.findOne({ hash }).exec(
+        (error: CallbackError, session: ISession | null) => {
+          if (error) {
+            callback(error);
+          } else if (session) {
+            callback(true);
+          } else {
+            callback(false);
+          }
+        },
+      );
     });
 
     socket.on('login', async (hash, user, callback) => {
-      await SessionModel.findOne({ hash }).exec((error: CallbackError, session: any) => {
-        if (error) {
-          callback(error);
-        } else if (session) {
-          socket.data.hash = hash;
-          socket.data.role = user.role;
+      await SessionModel.findOne({ hash }).exec(
+        (error: CallbackError, session: ISession | null) => {
+          if (error) {
+            callback(error);
+          } else if (session) {
+            socket.data.hash = hash;
+            socket.data.role = user.role;
 
-          if (session.game.runGame && !session.settings.autoLogin) {
-            socket.to(session.hash).emit('loginRequest', user);
-            callback('запрос на вход');
+            if (session.game.runGame && !session.settings.autoLogin) {
+              socket.to(session.hash).emit('loginRequest', user);
+              callback('запрос на вход');
+            } else {
+              session.users.push(user);
+              session.save((error: CallbackError, session: ISession | null) => {
+                if (!error) {
+                  socket.join('room');
+                  io.in('room').emit('update', session);
+                  callback('вошел');
+                }
+              });
+            }
           } else {
-            session.users.push(user);
-            session.save((error: CallbackError, session: any) => {
-              if (!error) {
-                socket.join('room');
-                io.in('room').emit('update', session);
-                callback('вошел');
-              }
-            });
+            callback('нет такой сессии');
           }
-        } else {
-          callback('нет такой сессии');
-        }
-      });
+        },
+      );
     });
 
     socket.on('loginAllow', async (user) => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
-        (error: CallbackError, session: any) => {
+        (error: CallbackError, session: ISession | null) => {
           if (!error) {
-            session.users.push(user);
-            session.save((error: CallbackError, session: any) => {
-              if (!error) {
-                io.in(user.socket).socketsJoin('room');
-                socket.to(user.socket).emit('loginAnswer', 'разрешено войти');
-                io.in('room').emit('update', session);
-              }
-            });
+            if (session) {
+              session.users.push(user);
+              session.save((error: CallbackError, session: ISession | null) => {
+                if (!error) {
+                  io.in(user.socket).socketsJoin('room');
+                  socket.to(user.socket).emit('loginAnswer', 'разрешено войти');
+                  io.in('room').emit('update', session);
+                }
+              });
+            }
           }
         },
       );
@@ -108,11 +114,11 @@ const socker = (server: any) => {
     socket.on('kick', async (userSocket) => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
               if (session) {
-                session.users = session.users.filter((user: any) => user.socket !== userSocket);
-                session.save((error: CallbackError, session: any) => {
+                session.users = session.users.filter((user: IUser) => user.socket !== userSocket);
+                session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
                     io.in(userSocket).socketsLeave('room');
                     socket.to(userSocket).emit('kick');
@@ -137,7 +143,7 @@ const socker = (server: any) => {
           { hash: socket.data.hash },
           { $set: props },
           { new: true },
-        ).exec((error: CallbackError, session: any) => {
+        ).exec((error: CallbackError, session: ISession | null) => {
           if (!error) {
             io.in('room').emit('update', session);
           }
@@ -148,22 +154,24 @@ const socker = (server: any) => {
     socket.on('settingsChange', async (props) => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
-              if (props.setCards) {
-                session.cards = setCards[props.setCards];
-              }
-
-              session.settings = {
-                ...session.settings,
-                ...props,
-              };
-
-              session.save((error: CallbackError, session: any) => {
-                if (!error) {
-                  io.in('room').emit('update', session);
+              if (session) {
+                if (props.setCards) {
+                  session.cards = setCards[props.setCards];
                 }
-              });
+
+                session.settings = {
+                  ...session.settings,
+                  ...props,
+                };
+
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in('room').emit('update', session);
+                  }
+                });
+              }
             }
           },
         );
@@ -173,14 +181,16 @@ const socker = (server: any) => {
     socket.on('cardsChange', async (cards) => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
-              session.cards = cards;
-              session.save((error: CallbackError, session: any) => {
-                if (!error) {
-                  io.in('room').emit('update', session);
-                }
-              });
+              if (session) {
+                session.cards = cards;
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in('room').emit('update', session);
+                  }
+                });
+              }
             }
           },
         );
@@ -190,17 +200,19 @@ const socker = (server: any) => {
     socket.on('runGame', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
-              session.game.runGame = true;
-              if (session.settings.timer) {
-                session.game.time = session.settings.roundTime;
-              }
-              session.save((error: CallbackError, session: any) => {
-                if (!error) {
-                  io.in('room').emit('update', session);
+              if (session) {
+                session.game.runGame = true;
+                if (session.settings.timer) {
+                  session.game.time = session.settings.roundTime;
                 }
-              });
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in('room').emit('update', session);
+                  }
+                });
+              }
             }
           },
         );
@@ -210,7 +222,7 @@ const socker = (server: any) => {
     function timer(time: number) {
       async function step() {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error && session) {
               time--;
               session.game.time = time;
@@ -221,7 +233,7 @@ const socker = (server: any) => {
                 session.game.endRound = true;
               }
 
-              session.save((error: CallbackError, session: any) => {
+              session.save((error: CallbackError, session: ISession | null) => {
                 if (!error) {
                   io.in('room').emit('update', session);
                 }
@@ -237,19 +249,21 @@ const socker = (server: any) => {
     socket.on('runRound', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
-              session.game.runRound = true;
-              session.game.endRound = false;
-              session.issues[session.game.issue].cards = [];
-              if (session.settings.timer) {
-                timer(session.game.time);
-              }
-              session.save((error: CallbackError, session: any) => {
-                if (!error) {
-                  io.in('room').emit('update', session);
+              if (session) {
+                session.game.runRound = true;
+                session.game.endRound = false;
+                session.issues[session.game.issue].cards = [];
+                if (session.settings.timer) {
+                  timer(session.game.time);
                 }
-              });
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in('room').emit('update', session);
+                  }
+                });
+              }
             }
           },
         );
@@ -259,19 +273,21 @@ const socker = (server: any) => {
     socket.on('newRound', async (key) => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
-              session.game.issue = key;
-              session.game.runRound = false;
-              session.game.endRound = false;
-              if (session.settings.timer) {
-                session.game.time = session.settings.roundTime;
-              }
-              session.save((error: CallbackError, session: any) => {
-                if (!error) {
-                  io.in('room').emit('update', session);
+              if (session) {
+                session.game.issue = key;
+                session.game.runRound = false;
+                session.game.endRound = false;
+                if (session.settings.timer) {
+                  session.game.time = session.settings.roundTime;
                 }
-              });
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in('room').emit('update', session);
+                  }
+                });
+              }
             }
           },
         );
@@ -281,34 +297,37 @@ const socker = (server: any) => {
     socket.on('endRound', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
-              clearInterval(socket.data.timer);
-              session.game.runRound = false;
-              session.game.endRound = true;
+              if (session) {
+                clearInterval(socket.data.timer);
+                session.game.runRound = false;
+                session.game.endRound = true;
 
-              const players = session.users.filter((user: any) =>
-                user.role === session.settings.masterPlayer ? 'dealer' || 'player' : 'player',
-              );
+                const checkRole = session.settings.masterPlayer ? 'dealer' || 'player' : 'player';
+                const players = session.users.filter((user: IUser) => user.role === checkRole);
 
-              const { cards } = session.issues[session.game.issue];
-              if (cards.length !== players.length) {
-                players.forEach((player: any) => {
-                  const check = cards.find((card: any) => card.userId === player.socket);
-                  if (!check) {
-                    cards.push({
-                      userId: player.socket,
-                      cardValue: 'Unknown',
-                    });
+                const { cards } = session.issues[session.game.issue];
+                if (cards.length !== players.length) {
+                  players.forEach((player: IUser) => {
+                    const check = cards.find(
+                      (card: IIssueCards) => card.userSocket === player.socket,
+                    );
+                    if (!check) {
+                      cards.push({
+                        userSocket: player.socket,
+                        cardValue: 'Unknown',
+                      });
+                    }
+                  });
+                }
+
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in('room').emit('update', session);
                   }
                 });
               }
-
-              session.save((error: CallbackError, session: any) => {
-                if (!error) {
-                  io.in('room').emit('update', session);
-                }
-              });
             }
           },
         );
@@ -318,19 +337,21 @@ const socker = (server: any) => {
     socket.on('endGame', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
-              clearInterval(socket.data.timer);
-              session.game.runGame = false;
-              session.game.endGame = true;
-              session.game.runRound = false;
-              session.game.endRound = false;
+              if (session) {
+                clearInterval(socket.data.timer);
+                session.game.runGame = false;
+                session.game.endGame = true;
+                session.game.runRound = false;
+                session.game.endRound = false;
 
-              session.save((error: CallbackError, session: any) => {
-                if (!error) {
-                  io.in('room').emit('update', session);
-                }
-              });
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in('room').emit('update', session);
+                  }
+                });
+              }
             }
           },
         );
@@ -339,41 +360,39 @@ const socker = (server: any) => {
 
     socket.on('cardSelection', async (value) => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
-        async (error: CallbackError, session: any) => {
+        async (error: CallbackError, session: ISession | null) => {
           if (!error) {
-            const { cards } = session.issues[session.game.issue];
-            const checkIndex = cards.findIndex(
-              (card: { userId: string; cardValue: string }) => card.userId === socket.id,
-            );
-            if (checkIndex !== -1) cards.splice(checkIndex, 1);
-
-            cards.push({
-              userId: socket.id,
-              cardValue: value,
-            });
-            session.issues[session.game.issue].cards = cards;
-
-            if (session.settings.flipCards) {
-              const players = session.users.filter((user: any) =>
-                user.role === session.settings.masterPlayer ? 'dealer' || 'player' : 'player',
+            if (session) {
+              const { cards } = session.issues[session.game.issue];
+              const checkIndex = cards.findIndex(
+                (card: IIssueCards) => card.userSocket === socket.id,
               );
+              if (checkIndex !== -1) cards.splice(checkIndex, 1);
 
-              if (cards.length === players.length) {
-                const sockets = await io.in('room').fetchSockets();
-                clearInterval(sockets[0].data.timer);
-                session.game.runRound = false;
-                session.game.endRound = true;
+              cards.push({
+                userSocket: socket.id,
+                cardValue: value,
+              });
+              session.issues[session.game.issue].cards = cards;
+
+              if (session.settings.flipCards) {
+                const checkRole = session.settings.masterPlayer ? 'dealer' || 'player' : 'player';
+                const players = session.users.filter((user: IUser) => user.role === checkRole);
+
+                if (cards.length === players.length) {
+                  const sockets = await io.in('room').fetchSockets();
+                  clearInterval(sockets[0].data.timer);
+                  session.game.runRound = false;
+                  session.game.endRound = true;
+                }
               }
+
+              session.save((error: CallbackError, session: ISession | null) => {
+                if (!error) {
+                  io.in('room').emit('update', session);
+                }
+              });
             }
-
-            session.save((error: CallbackError, session: any) => {
-              if (error) {
-                console.log(error);
-              }
-              if (!error) {
-                io.in('room').emit('update', session);
-              }
-            });
           }
         },
       );
@@ -382,7 +401,7 @@ const socker = (server: any) => {
     socket.on('disconnect', async () => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError) => {
             if (!error) {
               io.in('room').emit('close', 'сессия закрылась');
             }
@@ -390,11 +409,11 @@ const socker = (server: any) => {
         );
       } else {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
-          (error: CallbackError, session: any) => {
+          (error: CallbackError, session: ISession | null) => {
             if (!error) {
               if (session) {
-                session.users = session.users.filter((user: any) => user.socket !== socket.id);
-                session.save((error: CallbackError, session: any) => {
+                session.users = session.users.filter((user: IUser) => user.socket !== socket.id);
+                session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
                     io.in('room').emit('update', session);
                   }

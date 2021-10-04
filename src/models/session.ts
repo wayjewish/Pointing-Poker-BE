@@ -1,6 +1,59 @@
-import mongoose from 'mongoose';
+import mongoose, { Schema, Document } from 'mongoose';
+import { setCards } from '../assets/setCards';
 
-const sessionSchema = new mongoose.Schema(
+export interface IUser {
+  firstName: string;
+  lastName?: string;
+  job?: string;
+  role?: 'dealer' | 'player' | 'spectator';
+  avatar?: string;
+  socket: string;
+}
+
+export interface ISettings {
+  masterPlayer: boolean;
+  setCards: string;
+  autoLogin: boolean;
+  flipCards: boolean;
+  changingCard: boolean;
+  timer: boolean;
+  roundTime: number;
+  scoreType: string;
+  scoreTypeShort: string;
+}
+
+export interface IIssueCards {
+  userSocket: string;
+  cardValue: string;
+}
+
+export interface IIssue {
+  title: string;
+  link: string;
+  priority: 'low' | 'middle' | 'hight';
+  cards: IIssueCards[];
+}
+
+export interface IGame {
+  runGame: boolean;
+  endGame: boolean;
+  runRound: boolean;
+  endRound: boolean;
+  time: number;
+  issue: number;
+}
+
+export interface ISession extends Document {
+  title: string;
+  hash: string;
+  users: IUser[];
+  settings: ISettings;
+  cards: string[];
+  issues: IIssue[];
+  game: IGame;
+}
+
+const sessionSchema: Schema = new Schema(
   {
     title: {
       type: String,
@@ -53,7 +106,7 @@ const sessionSchema = new mongoose.Schema(
     },
     cards: {
       type: Array,
-      default: ['Unknown', '0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89'],
+      default: setCards.fibonacci,
     },
     issues: [
       {
@@ -62,7 +115,7 @@ const sessionSchema = new mongoose.Schema(
         priority: ['low', 'middle', 'hight'],
         cards: [
           {
-            userId: String,
+            userSocket: String,
             cardValue: String,
           },
         ],
@@ -98,4 +151,4 @@ const sessionSchema = new mongoose.Schema(
   { minimize: false },
 );
 
-export default mongoose.model('Session', sessionSchema);
+export default mongoose.model<ISession>('Session', sessionSchema);
