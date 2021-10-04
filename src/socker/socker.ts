@@ -1,7 +1,7 @@
 import * as http from 'http';
 import { CallbackError } from 'mongoose';
 import { Server, Socket } from 'socket.io';
-import SessionModel, { ISession, IUser, IIssueCards } from '../models/session';
+import SessionModel, { ISession, IUser, IIssueCards, IVoitesVotes } from '../models/session';
 import { setCards } from '../assets/setCards';
 
 const socker: (server: http.Server) => void = (server) => {
@@ -149,6 +149,80 @@ const socker: (server: http.Server) => void = (server) => {
           },
         );
       }
+    });
+
+    socket.on('votingStart', async (whoSocket, whomSocket) => {
+      if (socket.data.role === 'player') {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: ISession | null) => {
+            if (!error) {
+              if (session) {
+                session.voting = {
+                  run: true,
+                  whoSocket,
+                  whomSocket,
+                  votes: [],
+                };
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in(socket.data.room).emit('update', session);
+                  }
+                });
+              }
+            }
+          },
+        );
+      }
+    });
+
+    socket.on('vote', async (type) => {
+      await SessionModel.findOne({ hash: socket.data.hash }).exec(
+        (error: CallbackError, session: ISession | null) => {
+          if (!error) {
+            if (session) {
+              session.voting.votes.push({
+                userSocket: socket.id,
+                voteType: type,
+              });
+
+              const yesVotes = session.voting.votes.filter(
+                (vote: IVoitesVotes) => vote.voteType === 'yes',
+              );
+              const players = session.users.filter(
+                (user: IUser) =>
+                  user.role === 'player' &&
+                  user.socket !== session.voting.whoSocket &&
+                  user.socket !== session.voting.whomSocket,
+              );
+              const checkCountVotes = Math.floor(players.length / 2) + 1;
+
+              if (session.voting.votes.length === players.length) {
+                if (yesVotes.length >= checkCountVotes) {
+                  io.in(session.voting.whomSocket).socketsLeave(socket.data.room);
+                  socket.to(session.voting.whomSocket).emit('kick');
+
+                  session.users = session.users.filter(
+                    (user: IUser) => user.socket !== session.voting.whomSocket,
+                  );
+                }
+
+                session.voting = {
+                  run: false,
+                  whoSocket: '',
+                  whomSocket: '',
+                  votes: [],
+                };
+              }
+
+              session.save((error: CallbackError, session: ISession | null) => {
+                if (!error) {
+                  io.in(socket.data.room).emit('update', session);
+                }
+              });
+            }
+          }
+        },
+      );
     });
 
     socket.on('update', async (props) => {
