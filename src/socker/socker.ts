@@ -26,23 +26,12 @@ const socker: (server: http.Server) => void = (server) => {
         } else {
           socket.data.hash = socket.id;
           socket.data.role = user.role;
+          socket.data.room = `room${socket.id}`;
 
-          socket.join('room');
+          socket.join(socket.data.room);
           callback(session);
         }
       });
-    });
-
-    socket.on('close', async () => {
-      if (socket.data.role === 'dealer') {
-        await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
-          (error: CallbackError) => {
-            if (!error) {
-              io.in('room').emit('close', 'сессия закрылась');
-            }
-          },
-        );
-      }
     });
 
     socket.on('check', async (hash, callback) => {
@@ -67,6 +56,7 @@ const socker: (server: http.Server) => void = (server) => {
           } else if (session) {
             socket.data.hash = hash;
             socket.data.role = user.role;
+            socket.data.room = `room${hash}`;
 
             if (session.game.runGame && !session.settings.autoLogin) {
               socket.to(session.hash).emit('loginRequest', user);
@@ -75,8 +65,8 @@ const socker: (server: http.Server) => void = (server) => {
               session.users.push(user);
               session.save((error: CallbackError, session: ISession | null) => {
                 if (!error) {
-                  socket.join('room');
-                  io.in('room').emit('update', session);
+                  socket.join(socket.data.room);
+                  io.in(socket.data.room).emit('update', session);
                   callback('вошел');
                 }
               });
@@ -88,6 +78,35 @@ const socker: (server: http.Server) => void = (server) => {
       );
     });
 
+    socket.on('exit', async () => {
+      if (socket.data.role === 'dealer') {
+        await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
+          (error: CallbackError) => {
+            if (!error) {
+              io.in(socket.data.room).emit('close', 'сессия закрылась');
+              io.in(socket.data.room).socketsLeave(socket.data.room);
+            }
+          },
+        );
+      } else {
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: ISession | null) => {
+            if (!error) {
+              if (session) {
+                session.users = session.users.filter((user: IUser) => user.socket !== socket.id);
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    socket.leave(socket.data.room);
+                    io.in(socket.data.room).emit('update', session);
+                  }
+                });
+              }
+            }
+          },
+        );
+      }
+    });
+
     socket.on('loginAllow', async (user) => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
         (error: CallbackError, session: ISession | null) => {
@@ -96,9 +115,9 @@ const socker: (server: http.Server) => void = (server) => {
               session.users.push(user);
               session.save((error: CallbackError, session: ISession | null) => {
                 if (!error) {
-                  io.in(user.socket).socketsJoin('room');
+                  io.in(user.socket).socketsJoin(socket.data.room);
                   socket.to(user.socket).emit('loginAnswer', 'разрешено войти');
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -120,10 +139,9 @@ const socker: (server: http.Server) => void = (server) => {
                 session.users = session.users.filter((user: IUser) => user.socket !== userSocket);
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in(userSocket).socketsLeave('room');
+                    io.in(userSocket).socketsLeave(socket.data.room);
                     socket.to(userSocket).emit('kick');
-
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -145,7 +163,7 @@ const socker: (server: http.Server) => void = (server) => {
           { new: true },
         ).exec((error: CallbackError, session: ISession | null) => {
           if (!error) {
-            io.in('room').emit('update', session);
+            io.in(socket.data.room).emit('update', session);
           }
         });
       }
@@ -168,7 +186,7 @@ const socker: (server: http.Server) => void = (server) => {
 
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -187,7 +205,7 @@ const socker: (server: http.Server) => void = (server) => {
                 session.cards = cards;
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -209,7 +227,7 @@ const socker: (server: http.Server) => void = (server) => {
                 }
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -235,7 +253,7 @@ const socker: (server: http.Server) => void = (server) => {
 
               session.save((error: CallbackError, session: ISession | null) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -260,7 +278,7 @@ const socker: (server: http.Server) => void = (server) => {
                 }
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -284,7 +302,7 @@ const socker: (server: http.Server) => void = (server) => {
                 }
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -304,8 +322,11 @@ const socker: (server: http.Server) => void = (server) => {
                 session.game.runRound = false;
                 session.game.endRound = true;
 
-                const checkRole = session.settings.masterPlayer ? 'dealer' || 'player' : 'player';
-                const players = session.users.filter((user: IUser) => user.role === checkRole);
+                const players = session.users.filter((user: IUser) =>
+                  session.settings.masterPlayer
+                    ? user.role === 'dealer' || user.role === 'player'
+                    : user.role === 'player',
+                );
 
                 const { cards } = session.issues[session.game.issue];
                 if (cards.length !== players.length) {
@@ -324,7 +345,7 @@ const socker: (server: http.Server) => void = (server) => {
 
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -348,7 +369,7 @@ const socker: (server: http.Server) => void = (server) => {
 
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
@@ -376,11 +397,14 @@ const socker: (server: http.Server) => void = (server) => {
               session.issues[session.game.issue].cards = cards;
 
               if (session.settings.flipCards) {
-                const checkRole = session.settings.masterPlayer ? 'dealer' || 'player' : 'player';
-                const players = session.users.filter((user: IUser) => user.role === checkRole);
+                const players = session.users.filter((user: IUser) =>
+                  session.settings.masterPlayer
+                    ? user.role === 'dealer' || user.role === 'player'
+                    : user.role === 'player',
+                );
 
                 if (cards.length === players.length) {
-                  const sockets = await io.in('room').fetchSockets();
+                  const sockets = await io.in(socket.data.room).fetchSockets();
                   clearInterval(sockets[0].data.timer);
                   session.game.runRound = false;
                   session.game.endRound = true;
@@ -389,7 +413,7 @@ const socker: (server: http.Server) => void = (server) => {
 
               session.save((error: CallbackError, session: ISession | null) => {
                 if (!error) {
-                  io.in('room').emit('update', session);
+                  io.in(socket.data.room).emit('update', session);
                 }
               });
             }
@@ -403,7 +427,8 @@ const socker: (server: http.Server) => void = (server) => {
         await SessionModel.findOneAndDelete({ hash: socket.data.hash }).exec(
           (error: CallbackError) => {
             if (!error) {
-              io.in('room').emit('close', 'сессия закрылась');
+              io.in(socket.data.room).emit('close', 'сессия закрылась');
+              io.in(socket.data.room).socketsLeave(socket.data.room);
             }
           },
         );
@@ -415,7 +440,8 @@ const socker: (server: http.Server) => void = (server) => {
                 session.users = session.users.filter((user: IUser) => user.socket !== socket.id);
                 session.save((error: CallbackError, session: ISession | null) => {
                   if (!error) {
-                    io.in('room').emit('update', session);
+                    socket.leave(socket.data.room);
+                    io.in(socket.data.room).emit('update', session);
                   }
                 });
               }
