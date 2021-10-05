@@ -55,6 +55,11 @@ export interface IVoites {
   votes: IVoitesVotes[];
 }
 
+export interface IMsgToChat {
+  user: IUser;
+  message: string;
+}
+
 export interface ISession extends Document {
   title: string;
   hash: string;
@@ -64,6 +69,7 @@ export interface ISession extends Document {
   issues: IIssue[];
   game: IGame;
   voting: IVoites;
+  chat: IMsgToChat[];
 }
 
 const sessionSchema: Schema = new Schema(
@@ -174,6 +180,26 @@ const sessionSchema: Schema = new Schema(
         },
       ],
     },
+    chat: [
+      {
+        user: {
+          firstName: { type: String, required: true },
+          lastName: String,
+          job: String,
+          role: {
+            type: String,
+            required: true,
+            enum: ['dealer', 'player', 'spectator'],
+          },
+          avatar: String,
+          socket: {
+            type: String,
+            required: true,
+          },
+        },
+        message: String,
+      },
+    ],
   },
   { minimize: false },
 );
