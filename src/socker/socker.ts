@@ -1,7 +1,13 @@
 import * as http from 'http';
 import { CallbackError } from 'mongoose';
 import { Server, Socket } from 'socket.io';
-import SessionModel, { ISession, IUser, IIssueCards, IVoitesVotes } from '../models/session';
+import SessionModel, {
+  ISession,
+  IUser,
+  IIssueCards,
+  IVoitesVotes,
+  ISettings,
+} from '../models/session';
 import { setCards } from '../assets/setCards';
 
 const socker: (server: http.Server) => void = (server) => {
@@ -10,7 +16,7 @@ const socker: (server: http.Server) => void = (server) => {
   io.on('connection', (socket: Socket) => {
     console.log(socket.id);
 
-    socket.on('create', async (user, callback) => {
+    socket.on('create', async (user: IUser, callback: (msg: any) => void) => {
       const newSession = new SessionModel({
         hash: socket.id,
         users: [
@@ -34,7 +40,7 @@ const socker: (server: http.Server) => void = (server) => {
       });
     });
 
-    socket.on('check', async (hash, callback) => {
+    socket.on('check', async (hash: string, callback) => {
       await SessionModel.findOne({ hash }).exec(
         (error: CallbackError, session: ISession | null) => {
           if (error) {
@@ -48,7 +54,7 @@ const socker: (server: http.Server) => void = (server) => {
       );
     });
 
-    socket.on('login', async (hash, user, callback) => {
+    socket.on('login', async (hash: string, user: IUser, callback: (msg: any) => void) => {
       await SessionModel.findOne({ hash }).exec(
         (error: CallbackError, session: ISession | null) => {
           if (error) {
@@ -107,7 +113,7 @@ const socker: (server: http.Server) => void = (server) => {
       }
     });
 
-    socket.on('loginAllow', async (user) => {
+    socket.on('loginAllow', async (user: IUser) => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
         (error: CallbackError, session: ISession | null) => {
           if (!error) {
@@ -126,11 +132,11 @@ const socker: (server: http.Server) => void = (server) => {
       );
     });
 
-    socket.on('loginDeny', (user) => {
+    socket.on('loginDeny', (user: IUser) => {
       socket.to(user.socket).emit('loginAnswer', 'во входе отказано');
     });
 
-    socket.on('kick', async (userSocket) => {
+    socket.on('kick', async (userSocket: string) => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: ISession | null) => {
@@ -151,7 +157,7 @@ const socker: (server: http.Server) => void = (server) => {
       }
     });
 
-    socket.on('votingStart', async (whoSocket, whomSocket) => {
+    socket.on('votingStart', async (whoSocket: string, whomSocket: string) => {
       if (socket.data.role === 'player') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: ISession | null) => {
@@ -175,7 +181,7 @@ const socker: (server: http.Server) => void = (server) => {
       }
     });
 
-    socket.on('vote', async (type) => {
+    socket.on('vote', async (type: 'yes' | 'no') => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
         (error: CallbackError, session: ISession | null) => {
           if (!error) {
@@ -225,7 +231,27 @@ const socker: (server: http.Server) => void = (server) => {
       );
     });
 
-    socket.on('update', async (props) => {
+    socket.on('addMsgToChat', async (user: IUser, message: string) => {
+      await SessionModel.findOne({ hash: socket.data.hash }).exec(
+        (error: CallbackError, session: ISession | null) => {
+          if (!error) {
+            if (session) {
+              session.chat.push({
+                user,
+                message,
+              });
+              session.save((error: CallbackError, session: ISession | null) => {
+                if (!error) {
+                  io.in(socket.data.room).emit('update', session);
+                }
+              });
+            }
+          }
+        },
+      );
+    });
+
+    socket.on('update', async (props: ISession) => {
       if (socket.data.role === 'dealer') {
         if (props.settings) {
           props.cards = setCards[props.settings.setCards];
@@ -243,7 +269,7 @@ const socker: (server: http.Server) => void = (server) => {
       }
     });
 
-    socket.on('settingsChange', async (props) => {
+    socket.on('settingsChange', async (props: ISettings) => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: ISession | null) => {
@@ -270,7 +296,7 @@ const socker: (server: http.Server) => void = (server) => {
       }
     });
 
-    socket.on('cardsChange', async (cards) => {
+    socket.on('cardsChange', async (cards: string[]) => {
       if (socket.data.role === 'dealer') {
         await SessionModel.findOne({ hash: socket.data.hash }).exec(
           (error: CallbackError, session: ISession | null) => {
@@ -453,7 +479,7 @@ const socker: (server: http.Server) => void = (server) => {
       }
     });
 
-    socket.on('cardSelection', async (value) => {
+    socket.on('cardSelection', async (value: string) => {
       await SessionModel.findOne({ hash: socket.data.hash }).exec(
         async (error: CallbackError, session: ISession | null) => {
           if (!error) {
