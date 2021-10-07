@@ -258,6 +258,7 @@ const socker: (server: http.Server) => void = (server) => {
             if (!error) {
               if (session) {
                 if (
+                  props.settings &&
                   props.settings.setCards &&
                   props.settings.setCards !== session.settings.setCards
                 ) {
