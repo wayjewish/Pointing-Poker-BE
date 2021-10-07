@@ -253,19 +253,27 @@ const socker: (server: http.Server) => void = (server) => {
 
     socket.on('update', async (props: ISession) => {
       if (socket.data.role === 'dealer') {
-        if (props.settings) {
-          props.cards = setCards[props.settings.setCards];
-        }
+        await SessionModel.findOne({ hash: socket.data.hash }).exec(
+          (error: CallbackError, session: ISession | null) => {
+            if (!error) {
+              if (session) {
+                if (
+                  props.settings.setCards &&
+                  props.settings.setCards !== session.settings.setCards
+                ) {
+                  props.cards = setCards[props.settings.setCards];
+                }
 
-        await SessionModel.findOneAndUpdate(
-          { hash: socket.data.hash },
-          { $set: props },
-          { new: true },
-        ).exec((error: CallbackError, session: ISession | null) => {
-          if (!error) {
-            io.in(socket.data.room).emit('update', session);
-          }
-        });
+                session.set(props);
+                session.save((error: CallbackError, session: ISession | null) => {
+                  if (!error) {
+                    io.in(socket.data.room).emit('update', session);
+                  }
+                });
+              }
+            }
+          },
+        );
       }
     });
 
