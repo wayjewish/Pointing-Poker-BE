@@ -383,6 +383,7 @@ const socker: (server: http.Server) => void = (server) => {
                 session.game.endRound = false;
                 session.issues[session.game.issue].cards = [];
                 if (session.settings.timer) {
+                  session.game.time = session.settings.roundTime;
                   timer(session.game.time);
                 }
                 session.save((error: CallbackError, session: ISession | null) => {
